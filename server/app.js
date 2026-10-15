@@ -30,11 +30,33 @@ export function createApp({
     res.setHeader("Referrer-Policy", "no-referrer");
     next();
   });
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
 
   app.get("/api/health", (_req, res) =>
     res.json({ status: "ok", mode: demo ? "demo" : "live" }),
   );
   app.get("/api/news", async (req, res) => {
+    // La clave personal pertenece solo a esta petición: no se escribe ni se almacena.
+    const personalHeader = req.get("X-News-Api-Key");
+    const personalKey = personalHeader?.trim();
+    if (
+      personalHeader !== undefined &&
+      (!personalKey ||
+        personalKey.length > 256 ||
+        !/^[A-Za-z0-9_-]+$/.test(personalKey))
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Introduce una API Key válida de GNews, sin espacios internos (máximo 256 caracteres).",
+        });
+    }
+    const requestApiKey = personalKey || apiKey.trim();
+    const requestDemo = !personalKey && demo;
     const {
       category = "general",
       q = "",
@@ -51,14 +73,12 @@ export function createApp({
       typeof lang !== "string" ||
       !["es", "en"].includes(lang)
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Revisa la categoría, el país, el idioma y la búsqueda (máximo 200 caracteres).",
-        });
+      return res.status(400).json({
+        error:
+          "Revisa la categoría, el país, el idioma y la búsqueda (máximo 200 caracteres).",
+      });
     }
-    if (demo) {
+    if (requestDemo) {
       const articles = getDemoArticles(category, q.trim());
       return res.json({
         articles,
@@ -67,19 +87,17 @@ export function createApp({
         cached: false,
       });
     }
-    if (!apiKey.trim()) {
-      return res
-        .status(503)
-        .json({
-          error:
-            "Falta configurar NEWS_API_KEY en el archivo .env del servidor.",
-        });
+    if (!requestApiKey) {
+      return res.status(503).json({
+        error:
+          "Añade tu API Key personal desde Configuración o configura NEWS_API_KEY en el servidor.",
+      });
     }
     const key = JSON.stringify([category, q.trim(), country, lang]);
-    const existing = cache.get(key);
+    const existing = !personalKey && cache.get(key);
     if (existing && existing.expires > Date.now())
       return res.json({ ...existing.data, cached: true });
-    cache.delete(key);
+    if (!personalKey) cache.delete(key);
 
     const load = async () => {
       const url = new URL("https://gnews.io/api/v4/top-headlines");
@@ -87,18 +105,18 @@ export function createApp({
         category,
         lang,
         max: "10",
-        apikey: apiKey.trim(),
         nullable: "description,content,image",
       });
       if (q.trim()) url.searchParams.set("q", q.trim());
       if (country !== "all") url.searchParams.set("country", country);
       const response = await fetchImpl(url, {
         signal: AbortSignal.timeout(10_000),
+        headers: { "X-Api-Key": requestApiKey },
       });
       if (!response.ok) {
         const errors = {
           400: "GNews no pudo interpretar la búsqueda. Prueba con otros términos.",
-          401: "La API Key de GNews no es válida. Revisa la configuración del servidor.",
+          401: "La API Key de GNews no es válida. Revisa tu clave en Configuración o en el servidor.",
           403: "GNews rechazó el acceso. Revisa la clave, la cuota y los permisos de tu plan.",
           429: "Se alcanzó el límite de consultas de GNews. Inténtalo más tarde.",
         };
@@ -144,11 +162,15 @@ export function createApp({
         cached: false,
       };
       // Una caché pequeña evita gastar cuota al volver a una categoría.
-      if (cache.size >= 100) cache.delete(cache.keys().next().value);
-      cache.set(key, { data, expires: Date.now() + cacheMs });
+      if (!personalKey) {
+        if (cache.size >= 100) cache.delete(cache.keys().next().value);
+        cache.set(key, { data, expires: Date.now() + cacheMs });
+      }
       return data;
     };
     try {
+      // Evita conservar claves personales en cachés o promesas compartidas.
+      if (personalKey) return res.json(await load());
       if (!inFlight.has(key))
         inFlight.set(
           key,

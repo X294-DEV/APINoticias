@@ -950,6 +950,76 @@ kbd svg {
   background: #020b12a8;
   backdrop-filter: blur(9px);
 }
+.settings-button {
+  position: relative;
+}
+.settings-button.configured::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.api-key-label {
+  display: block;
+  margin: 23px 0 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.api-key-input {
+  display: block;
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.16);
+  color: inherit;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.api-key-input::placeholder {
+  color: var(--muted);
+}
+.modal .key-privacy {
+  font-size: 11px;
+  margin: 11px 0 22px;
+  line-height: 1.8;
+}
+.modal .key-status {
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--accent);
+}
+.modal .key-error {
+  margin: 10px 0 0;
+  color: #ffc6b9;
+  font-size: 12px;
+}
+.key-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.forget-key {
+  font-size: 12px;
+  padding: 9px 0;
+  color: var(--muted);
+}
+.forget-key:hover {
+  color: var(--accent);
+}
+.key-provider {
+  margin-top: 24px;
+}
+.help-configure {
+  display: flex;
+  margin-bottom: 18px;
+}
 .modal-top {
   display: flex;
   align-items: center;
@@ -1429,6 +1499,14 @@ kbd svg {
   }
   .edition > svg:last-child {
     display: none;
+  }
+}
+@media (max-width: 420px) {
+  .header-right {
+    gap: 4px;
+  }
+  .view-nav {
+    gap: 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -7,7 +7,7 @@ async function withServer(options, run) {
   await new Promise((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    await run((route) => fetch(`${base}${route}`));
+    await run((route, options) => fetch(`${base}${route}`, options));
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -59,10 +59,11 @@ test("envía filtros a GNews, oculta la clave y reutiliza la caché", async () =
   await withServer(
     {
       apiKey: "test-secret",
-      fetchImpl: async (url) => {
+      fetchImpl: async (url, options) => {
         calls++;
         assert.equal(url.origin, "https://gnews.io");
-        assert.equal(url.searchParams.get("apikey"), "test-secret");
+        assert.equal(url.searchParams.has("apikey"), false);
+        assert.equal(options.headers["X-Api-Key"], "test-secret");
         assert.equal(url.searchParams.get("category"), "science");
         assert.equal(url.searchParams.get("country"), "mx");
         assert.equal(url.searchParams.get("q"), "espacio");
@@ -77,6 +78,140 @@ test("envía filtros a GNews, oculta la clave y reutiliza la caché", async () =
       assert.equal(JSON.stringify(first).includes("test-secret"), false);
       assert.equal((await (await request(route)).json()).cached, true);
       assert.equal(calls, 1);
+    },
+  );
+});
+
+test("una clave personal consulta GNews incluso sin .env y en modo demo", async () => {
+  await withServer(
+    {
+      mode: "demo",
+      fetchImpl: async (url, options) => {
+        assert.equal(options.headers["X-Api-Key"], "personal-test-key");
+        assert.equal(url.searchParams.has("apikey"), false);
+        return providerResponse();
+      },
+    },
+    async (request) => {
+      const response = await request("/api/news", {
+        headers: { "X-News-Api-Key": "personal-test-key" },
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      const data = await response.json();
+      assert.equal(data.mode, "live");
+      assert.equal(JSON.stringify(data).includes("personal-test-key"), false);
+      assert.equal((await (await request("/api/news")).json()).mode, "demo");
+    },
+  );
+});
+
+test("la clave personal prevalece y no lee ni modifica la caché del servidor", async () => {
+  const calls = [];
+  await withServer(
+    {
+      apiKey: "server-test-key",
+      fetchImpl: async (_url, options) => {
+        const key = options.headers["X-Api-Key"];
+        calls.push(key);
+        return providerResponse([
+          {
+            ...providerArticle,
+            title: key === "server-test-key" ? "Servidor" : "Personal",
+          },
+        ]);
+      },
+    },
+    async (request) => {
+      const personal = { headers: { "X-News-Api-Key": "personal-test-key" } };
+      assert.equal(
+        (await (await request("/api/news")).json()).articles[0].title,
+        "Servidor",
+      );
+      for (let i = 0; i < 2; i++) {
+        const data = await (await request("/api/news", personal)).json();
+        assert.equal(data.articles[0].title, "Personal");
+        assert.equal(data.cached, false);
+      }
+      const server = await (await request("/api/news")).json();
+      assert.equal(server.articles[0].title, "Servidor");
+      assert.equal(server.cached, true);
+      assert.deepEqual(calls, [
+        "server-test-key",
+        "personal-test-key",
+        "personal-test-key",
+      ]);
+    },
+  );
+});
+
+test("dos claves personales simultáneas nunca comparten resultados", async () => {
+  const calls = [];
+  await withServer(
+    {
+      fetchImpl: async (_url, options) => {
+        const key = options.headers["X-Api-Key"];
+        calls.push(key);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return providerResponse([
+          {
+            ...providerArticle,
+            title: key === "personal-key-a" ? "Cuenta A" : "Cuenta B",
+          },
+        ]);
+      },
+    },
+    async (request) => {
+      const data = await Promise.all(
+        ["personal-key-a", "personal-key-b"].map(async (key) =>
+          (
+            await request("/api/news", { headers: { "X-News-Api-Key": key } })
+          ).json(),
+        ),
+      );
+      assert.equal(data[0].articles[0].title, "Cuenta A");
+      assert.equal(data[1].articles[0].title, "Cuenta B");
+      assert.equal(calls.length, 2);
+    },
+  );
+});
+
+test("una clave personal inválida no se sustituye por la clave del servidor", async () => {
+  await withServer(
+    {
+      apiKey: "server-test-key",
+      fetchImpl: async (_url, options) => {
+        assert.equal(options.headers["X-Api-Key"], "invalid-personal-key");
+        return new Response("invalid-personal-key", { status: 401 });
+      },
+    },
+    async (request) => {
+      const response = await request("/api/news", {
+        headers: { "X-News-Api-Key": "invalid-personal-key" },
+      });
+      assert.equal(response.status, 502);
+      assert.equal(
+        (await response.text()).includes("invalid-personal-key"),
+        false,
+      );
+    },
+  );
+});
+
+test("rechaza claves malformadas antes de contactar con GNews", async () => {
+  await withServer(
+    {
+      fetchImpl: async () => {
+        assert.fail("No debe consultar al proveedor");
+      },
+    },
+    async (request) => {
+      for (const key of ["", "key with spaces", "a".repeat(257)]) {
+        const response = await request("/api/news", {
+          headers: { "X-News-Api-Key": key },
+        });
+        assert.equal(response.status, 400);
+      }
     },
   );
 });
