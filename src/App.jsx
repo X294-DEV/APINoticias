@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ApiKeyDialog from "./ApiKeyDialog.jsx";
 import {
   ArrowDown,
   ArrowLeft,
@@ -18,6 +19,7 @@ import {
   Palette,
   Radio,
   Search,
+  Settings,
   Sparkles,
   Trophy,
   TrendingUp,
@@ -136,7 +138,7 @@ function Ambient() {
   );
 }
 
-function Modal({ type, onClose, theme, setTheme }) {
+function Modal({ type, onClose, theme, setTheme, onConfigure }) {
   const dialog = useRef(null);
   useEffect(() => {
     dialog.current.showModal();
@@ -208,13 +210,19 @@ function Modal({ type, onClose, theme, setTheme }) {
             <div>
               <strong>Conecta las noticias reales</strong>
               <p>
-                Configura <code>NEWS_API_KEY</code> en el archivo{" "}
-                <code>.env</code> de Express y reinicia el servidor. Mientras no
-                haya una clave, verás artículos ficticios identificados como
-                ejemplos.
+                Abre el engranaje de configuración e introduce tu API Key
+                personal de GNews. Se usará solo mientras esta página esté
+                abierta. Sin una clave, puedes explorar los artículos de
+                ejemplo.
               </p>
             </div>
           </div>
+          <button
+            className="primary-button help-configure"
+            onClick={onConfigure}
+          >
+            Usar mi API Key <Settings size={16} />
+          </button>
           <a
             className="text-link"
             href="https://gnews.io/"
@@ -241,6 +249,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [mode, setMode] = useState(null);
   const [refresh, setRefresh] = useState(0);
+  // La clave personal vive solo en este estado: no se persiste ni se añade a URLs.
+  const [personalApiKey, setPersonalApiKey] = useState("");
   const [saved, setSaved] = useState(() => {
     const stored = readStorage("onda.saved", []);
     return Array.isArray(stored)
@@ -306,6 +316,7 @@ export default function App() {
     const controller = new AbortController();
     setStatus("loading");
     setError("");
+    setMode(null);
     setArticles([]);
     setSelected(0);
     async function loadNews() {
@@ -318,6 +329,8 @@ export default function App() {
         });
         const response = await fetch(`/api/news?${params}`, {
           signal: controller.signal,
+          headers: personalApiKey ? { "X-News-Api-Key": personalApiKey } : {},
+          cache: "no-store",
         });
         const data = await response.json();
         if (!response.ok)
@@ -346,7 +359,15 @@ export default function App() {
     }
     loadNews();
     return () => controller.abort();
-  }, [category, country, query, refresh, view]);
+  }, [category, country, query, refresh, view, personalApiKey]);
+
+  function usePersonalKey(key) {
+    setPersonalApiKey(key);
+    setView("explore");
+    setSelected(0);
+    setRefresh((value) => value + 1);
+    setModal(null);
+  }
 
   function selectCategory(id) {
     setCategory(id);
@@ -479,6 +500,14 @@ export default function App() {
           >
             <Palette size={19} />
           </button>
+          <button
+            className={`icon-button settings-button ${personalApiKey ? "configured" : ""}`}
+            aria-label="Configurar API Key"
+            title="Configurar API Key"
+            onClick={() => setModal("settings")}
+          >
+            <Settings size={19} />
+          </button>
         </div>
       </header>
 
@@ -495,21 +524,29 @@ export default function App() {
           </div>
           <button
             className="edition"
-            onClick={() => setModal(mode === "demo" ? "demo" : "help")}
+            onClick={() =>
+              setModal(mode === "demo" || personalApiKey ? "settings" : "help")
+            }
           >
             <Radio size={16} />
             <span>
-              {mode === "live"
-                ? "SEÑAL EN VIVO"
-                : mode === "demo"
-                  ? "MODO DEMOSTRACIÓN"
-                  : "SINTONIZANDO"}
-              <small>
-                {mode === "live"
-                  ? "Noticias vía GNews"
+              {failed
+                ? "SIN SEÑAL"
+                : mode === "live"
+                  ? "SEÑAL EN VIVO"
                   : mode === "demo"
-                    ? "Artículos de ejemplo · Sin API Key"
-                    : "Conectando con Express"}
+                    ? "MODO DEMOSTRACIÓN"
+                    : "SINTONIZANDO"}
+              <small>
+                {failed
+                  ? "Revisa la conexión o tu API Key"
+                  : mode === "live"
+                    ? personalApiKey
+                      ? "GNews · Clave personal temporal"
+                      : "Noticias vía GNews"
+                    : mode === "demo"
+                      ? "Artículos de ejemplo · Sin API Key"
+                      : "Conectando con Express"}
               </small>
             </span>
             <ArrowUpRight size={15} />
@@ -641,6 +678,12 @@ export default function App() {
                 onClick={() => setRefresh((value) => value + 1)}
               >
                 Volver a intentar <ArrowRight size={16} />
+              </button>
+              <button
+                className="text-link"
+                onClick={() => setModal("settings")}
+              >
+                <Settings size={15} /> Revisar API Key
               </button>
             </div>
           ) : visible.length === 0 ? (
@@ -831,13 +874,23 @@ export default function App() {
           <CircleHelp size={15} /> Cómo navegar
         </button>
       </footer>
-      {modal && (
-        <Modal
-          type={modal}
+      {modal === "settings" ? (
+        <ApiKeyDialog
+          configured={Boolean(personalApiKey)}
+          onSave={usePersonalKey}
+          onForget={() => usePersonalKey("")}
           onClose={() => setModal(null)}
-          theme={theme}
-          setTheme={setTheme}
         />
+      ) : (
+        modal && (
+          <Modal
+            type={modal}
+            onClose={() => setModal(null)}
+            theme={theme}
+            setTheme={setTheme}
+            onConfigure={() => setModal("settings")}
+          />
+        )
       )}
     </div>
   );
