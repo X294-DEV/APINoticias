@@ -103,6 +103,12 @@ APINoticias/
 └── vite.config.js
 ```
 
+## Herramientas de IA utilizadas
+
+- **OpenAI Codex:** se utilizó como asistente para diseñar la estructura React/Express, implementar la interfaz y la conexión con GNews, redactar documentación y preparar pruebas.
+
+El resultado se verificó con pruebas automatizadas, compilación y comprobaciones locales de la interfaz y de la API. Las API Keys personales se mantienen fuera del repositorio.
+
 Documentación consultada: [GNews: Top Headlines](https://docs.gnews.io/endpoints/top-headlines-endpoint), [GNews: autenticación por cabecera](https://docs.gnews.io/authentication), [Vite](https://vite.dev/guide/) y [Express 5](https://expressjs.com/en/guide/migrating-5/).
 
 Las pruebas automatizadas usan un proveedor simulado. La integración real necesita una clave válida y cuota disponible; una prueba de demostración no verifica el servicio real de GNews.
